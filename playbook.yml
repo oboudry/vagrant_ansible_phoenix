@@ -1,0 +1,103 @@
+---
+- hosts: all
+  become: yes
+
+  tasks:
+    - name: Add Erlang repository key
+      apt_key:
+        url: https://packages.erlang-solutions.com/ubuntu/erlang_solutions.asc
+        state: present
+
+    - name: Add Elixir repository
+      apt_repository:
+        repo: deb https://packages.erlang-solutions.com/ubuntu focal contrib
+        state: present
+
+    - name: Install packages
+      apt:
+        name: "{{ item }}"
+        state: present
+        cache_valid_time: 3600
+      with_items:
+        - postgresql
+        - postgresql-client
+        - elixir
+        - pip
+        - inotify-tools
+        - erlang-dev
+        - erlang-parsetools
+        - erlang-xmerl
+
+    - pip:
+        name: psycopg2-binary
+
+    - name: Create postgresql user for Phoenix application
+      become: yes
+      become_user: postgres
+      postgresql_user:
+        name: "{{ db.user }}"
+        password: "{{ db.password }}"
+
+    - name: Create database
+      become: yes
+      become_user: postgres
+      postgresql_db:
+        name: "{{ db.name }}"
+        state: present
+
+    - name: Grant database access
+      become: yes
+      become_user: postgres
+      postgresql_privs:
+        db: "{{ db.name }}"
+        role: "{{ db.user }}"
+        objs: ALL_IN_SCHEMA
+        privs: SELECT,INSERT,UPDATE,DELETE
+
+    - name: Install Hex
+      become: false
+      shell: mix local.hex --force
+
+    - name: Install Rebar prerequisite
+      become: false
+      shell: mix local.rebar --force
+
+    - name: Install the Phoenix framework
+      become: false
+      shell: mix archive.install hex phx_new --force
+
+    - name: Create the phoenix app
+      become: false
+      shell: mix phx.new {{ app.name }} --no-install
+      args:
+        chdir: ~
+        creates: ~/{{ app.name }}
+
+    - name: Patch the mix.exs file
+      become: false
+      replace:
+        path: ~/{{ app.name }}/mix.exs
+        regexp: '{:phoenix, "~> 1.6.7"},'
+        replace: '{:phoenix, "~> 1.6.6"},'
+
+    - name: Update dev.exs file
+      become: false
+      template:
+        src: templates/dev.exs.j2
+        dest: ~/{{ app.name }}/config/dev.exs
+
+    - name: Get dependencies
+      become: false
+      shell: mix deps.get
+      args:
+        chdir: ~/{{ app.name }}
+
+    - name: Populate database
+      become: false
+      shell: mix ecto.create
+      args:
+        chdir: ~/{{ app.name }}
+
+    - name: Start server
+      debug:
+        msg: cd {{ app.name }} && mix phx.server

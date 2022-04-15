@@ -1,0 +1,7 @@
+app:
+  name: phoenixapp
+
+db:
+  user: phoenixuser
+  password: pFmMxcyD;Fc6)6
+  name: phoenixdb
